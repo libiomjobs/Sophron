@@ -1,0 +1,19 @@
+# Normalise line endings in the repository; check out native.
+* text=auto
+
+*.cs      text diff=csharp
+*.csproj  text
+*.slnx    text
+*.props   text
+*.targets text
+*.config  text
+*.xaml    text
+*.md      text
+*.ps1     text eol=crlf
+
+*.png binary
+*.ico binary
+*.snk binary
+*.cpp     text
+*.h       text
+CMakeLists.txt text

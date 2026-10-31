@@ -1,0 +1,32 @@
+<Window x:Class="Sophron.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Sophron.Controls"
+        Title="Sophron" Width="1280" Height="400" MinWidth="640" MinHeight="300">
+    <DockPanel Margin="16">
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Text="MIDI input" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="MidiInputs" Width="220" Margin="0,0,24,0" SelectionChanged="OnMidiInputChanged" />
+
+            <!-- The pitch wheel's reach, in steps of 27-TET. -->
+            <TextBlock Text="Bend" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="BendRange" Width="130" Margin="0,0,24,0" SelectionChanged="OnBendRangeChanged" />
+
+            <!-- B, D♯ and G lie exactly halfway between two steps, so each needs telling which way to go. -->
+            <TextBlock Text="B" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="BTie" Width="120" Margin="0,0,16,0" SelectionChanged="OnTieChanged" />
+            <TextBlock Text="D♯" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="DSharpTie" Width="120" Margin="0,0,16,0" SelectionChanged="OnTieChanged" />
+            <TextBlock Text="G" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="GTie" Width="120" Margin="0,0,24,0" SelectionChanged="OnTieChanged" />
+
+            <Button Content="Export Scala files…" Click="OnExportScala" />
+        </WrapPanel>
+
+        <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Margin="0,12,0,0" TextTrimming="CharacterEllipsis" />
+
+        <ScrollViewer x:Name="KeyboardScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <controls:Tet27Keyboard x:Name="Keyboard" StepPressed="OnStepPressed" StepReleased="OnStepReleased" />
+        </ScrollViewer>
+    </DockPanel>
+</Window>

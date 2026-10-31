@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Sophron</RootNamespace>
+    <!-- The tuning and the model know nothing of windows, so they can be tested and reused without them. -->
+    <UseWPF>false</UseWPF>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sophron.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Sophron</RootNamespace>
+    <AssemblyName>Sophron</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The source-generated calls into the native engine are unsafe code, though nothing written here is. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Public members of an application need not all carry documentation; and the Fluent theme, which
+         follows Windows between light and dark, is still marked experimental. -->
+    <NoWarn>$(NoWarn);CS1591;WPF0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.Midi" Version="2.2.1" />
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sophron.Core\Sophron.Core.csproj" />
+  </ItemGroup>
+
+  <!-- The engine is C++, built by CMake through build-engine.ps1; MSBuild only runs it when its sources change. -->
+  <PropertyGroup>
+    <EngineDll>$(MSBuildThisFileDirectory)..\Engine\build\Release\sophron_engine.dll</EngineDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EngineSource Include="..\Engine\CMakeLists.txt;..\Engine\include\**;..\Engine\src\**;..\Engine\tests\**" />
+  </ItemGroup>
+
+  <Target Name="BuildEngine" BeforeTargets="BeforeBuild" Inputs="@(EngineSource);..\build-engine.ps1" Outputs="$(EngineDll)">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\build-engine.ps1&quot;" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="CopyEngine" AfterTargets="Build" Condition="Exists('$(EngineDll)')">
+    <Copy SourceFiles="$(EngineDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

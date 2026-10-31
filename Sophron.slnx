@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Sophron/Sophron.csproj" />
+  <Project Path="Sophron.Core/Sophron.Core.csproj" />
+  <Project Path="Sophron.Tests/Sophron.Tests.csproj" />
+</Solution>
