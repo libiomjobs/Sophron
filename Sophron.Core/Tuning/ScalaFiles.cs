@@ -4,43 +4,51 @@ using System.Text;
 namespace Sophron.Tuning;
 
 /// <summary>
-/// The tuning as Scala files, for instruments that read them: a <c>.scl</c> holding the 27 steps and a
-/// <c>.kbm</c> saying which MIDI key plays which step, with A4 at 432 Hz.
+/// A temperament as Scala files, for instruments that read them: a <c>.scl</c> holding its steps and a
+/// <c>.kbm</c> saying which MIDI key plays which step, with A4 where the fundamental puts it.
 /// </summary>
 public static class ScalaFiles
 {
-    public const string ScaleFileName = "Sophron-27tet.scl";
-
-    public const string StandardMappingFileName = "Sophron-27tet-standard.kbm";
-
     private const int A4MidiNote = 69;
 
-    public static string Scale()
+    public static string ScaleFileName(Temperament temperament) =>
+        $"Sophron-{Invariant(temperament.StepsPerOctave)}tet.scl";
+
+    public static string StandardMappingFileName(Temperament temperament) =>
+        $"Sophron-{Invariant(temperament.StepsPerOctave)}tet-standard.kbm";
+
+    public static string Scale(Temperament temperament)
     {
         var text = new StringBuilder();
-        text.AppendLine("! " + ScaleFileName);
+        text.AppendLine("! " + ScaleFileName(temperament));
         text.AppendLine("!");
-        text.AppendLine("27-tone equal temperament (Sophron)");
-        text.AppendLine(" " + Tet27.StepsPerOctave.ToString(CultureInfo.InvariantCulture));
+        text.AppendLine(Invariant(temperament.StepsPerOctave) + "-tone equal temperament (Sophron)");
+        text.AppendLine(" " + Invariant(temperament.StepsPerOctave));
         text.AppendLine("!");
 
         // Scala reads a value with a point as cents, and one without as a ratio.
-        for (var step = 1; step < Tet27.StepsPerOctave; step++)
+        for (var step = 1; step < temperament.StepsPerOctave; step++)
         {
-            text.AppendLine(" " + Tet27.Cents(step).ToString("0.00000", CultureInfo.InvariantCulture));
+            text.AppendLine(" " + temperament.Cents(step).ToString("0.00000", CultureInfo.InvariantCulture));
         }
 
         text.AppendLine(" 2/1");
         return text.ToString();
     }
 
-    /// <summary>A mapping that plays each standard key on its nearest step, as <paramref name="map"/> does.</summary>
-    public static string StandardMapping(StandardKeyMap map)
+    /// <summary>
+    /// A mapping that plays each standard key on the step <paramref name="temperament"/> gives it: its
+    /// own in 12-TET, the nearest by <paramref name="map"/> in 27-TET.
+    /// </summary>
+    public static string StandardMapping(Temperament temperament, StandardKeyMap map)
     {
-        var a4 = Tet27.Frequency(map.StepFor(A4MidiNote));
+        var a4 = temperament.Frequency(temperament.StepFor(A4MidiNote, map));
+        var fundamental = temperament.FundamentalHz.ToString("0.###", CultureInfo.InvariantCulture);
         var text = new StringBuilder();
-        text.AppendLine("! " + StandardMappingFileName);
-        text.AppendLine("! Each standard key plays the nearest step of 27-TET; A0 is 27 Hz.");
+        text.AppendLine("! " + StandardMappingFileName(temperament));
+        text.AppendLine(temperament.IsStandard
+            ? $"! Each standard key plays its own step; A0 is {fundamental} Hz."
+            : $"! Each standard key plays the nearest step of {Invariant(temperament.StepsPerOctave)}-TET; A0 is {fundamental} Hz.");
         text.AppendLine("! Size of map:");
         text.AppendLine(Invariant(StandardKeyMap.KeysPerOctave));
         text.AppendLine("! First and last MIDI notes to retune:");
@@ -52,11 +60,11 @@ public static class ScalaFiles
         text.AppendLine(Invariant(A4MidiNote));
         text.AppendLine(a4.ToString("0.000000", CultureInfo.InvariantCulture));
         text.AppendLine("! Scale degree of the octave:");
-        text.AppendLine(Invariant(Tet27.StepsPerOctave));
+        text.AppendLine(Invariant(temperament.StepsPerOctave));
         text.AppendLine("! Mapping, from A:");
         for (var key = 0; key < StandardKeyMap.KeysPerOctave; key++)
         {
-            text.AppendLine(Invariant(map.Degree(key)));
+            text.AppendLine(Invariant(temperament.Degree(temperament.StepFor(StandardKeyMap.A0MidiNote + key, map))));
         }
 
         return text.ToString();

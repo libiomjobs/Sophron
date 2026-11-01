@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 
 namespace Sophron;
@@ -15,6 +16,20 @@ internal static class Preferences
     {
         get => Read("midi-input.txt");
         set => Write("midi-input.txt", value);
+    }
+
+    /// <summary>Steps to the octave, 12 or 27.</summary>
+    public static int? StepsPerOctave
+    {
+        get => int.TryParse(Read("temperament.txt"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var steps) ? steps : null;
+        set => Write("temperament.txt", value?.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>A0, in hertz.</summary>
+    public static double? FundamentalHz
+    {
+        get => double.TryParse(Read("fundamental.txt"), NumberStyles.Float, CultureInfo.InvariantCulture, out var hertz) ? hertz : null;
+        set => Write("fundamental.txt", value?.ToString("R", CultureInfo.InvariantCulture));
     }
 
     private static string? Read(string name)

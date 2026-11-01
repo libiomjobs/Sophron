@@ -108,6 +108,14 @@ int main() {
         const auto down = risingCrossings(render(synth, 1.0));
         check(std::abs(down - 400) <= 1, "and bending down a white key lands on the white below (400 Hz)");
     }
+    {
+        sophron::Synth synth(Rate);
+        synth.noteOn(108, 432.0, 1.0f);
+        render(synth, 0.1);
+        synth.retune(440.0 / 432.0);
+        const auto crossings = risingCrossings(render(synth, 1.0));
+        check(std::abs(crossings - 440) <= 1, "retuning moves a held note from 432 to 440 Hz");
+    }
 
     std::printf("%d failed\n", failures);
     return failures == 0 ? 0 : 1;

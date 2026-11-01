@@ -2,23 +2,43 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:Sophron.Controls"
-        Title="Sophron" Width="1280" Height="400" MinWidth="640" MinHeight="300">
+        Title="Sophron" Width="1280" Height="440" MinWidth="640" MinHeight="320">
     <DockPanel Margin="16">
+        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <TextBlock Text="Tuning" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="Temperaments" Width="100" Margin="0,0,24,0" SelectionChanged="OnTemperamentChanged" />
+
+            <!-- A0 is the fundamental every step is counted from; A4 is four octaves above it. -->
+            <TextBlock Text="A0" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <Slider x:Name="FundamentalSlider" Width="220" VerticalAlignment="Center" Margin="0,0,8,0"
+                    SmallChange="0.01" LargeChange="0.1" ValueChanged="OnFundamentalSlid" />
+            <TextBox x:Name="FundamentalText" Width="72" VerticalAlignment="Center" Margin="0,0,4,0"
+                     KeyDown="OnFundamentalKeyDown" LostKeyboardFocus="OnFundamentalTyped" />
+            <TextBlock Text="Hz" VerticalAlignment="Center" Margin="0,0,12,0" />
+            <TextBlock x:Name="A4Text" VerticalAlignment="Center" Width="250" Margin="0,0,8,0" />
+            <Button Content="A4 432" Tag="432" Margin="0,0,6,0" Click="OnFundamentalPreset" />
+            <Button Content="A4 440" Tag="440" Click="OnFundamentalPreset" />
+        </WrapPanel>
+
         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,12">
             <TextBlock Text="MIDI input" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <ComboBox x:Name="MidiInputs" Width="220" Margin="0,0,24,0" SelectionChanged="OnMidiInputChanged" />
+            <ComboBox x:Name="MidiInputs" Width="220" Margin="0,0,6,0" SelectionChanged="OnMidiInputChanged" />
+            <Button Content="Reconnect" Margin="0,0,24,0" Click="OnReconnect"
+                    ToolTip="Closes and reopens the MIDI inputs, for a keyboard that has gone quiet" />
 
-            <!-- The pitch wheel's reach, in steps of 27-TET. -->
+            <!-- The pitch wheel's reach, in steps of the temperament. -->
             <TextBlock Text="Bend" VerticalAlignment="Center" Margin="0,0,6,0" />
-            <ComboBox x:Name="BendRange" Width="130" Margin="0,0,24,0" SelectionChanged="OnBendRangeChanged" />
+            <ComboBox x:Name="BendRange" Width="140" Margin="0,0,24,0" SelectionChanged="OnBendRangeChanged" />
 
-            <!-- B, D♯ and G lie exactly halfway between two steps, so each needs telling which way to go. -->
-            <TextBlock Text="B" VerticalAlignment="Center" Margin="0,0,6,0" />
-            <ComboBox x:Name="BTie" Width="120" Margin="0,0,16,0" SelectionChanged="OnTieChanged" />
-            <TextBlock Text="D♯" VerticalAlignment="Center" Margin="0,0,6,0" />
-            <ComboBox x:Name="DSharpTie" Width="120" Margin="0,0,16,0" SelectionChanged="OnTieChanged" />
-            <TextBlock Text="G" VerticalAlignment="Center" Margin="0,0,6,0" />
-            <ComboBox x:Name="GTie" Width="120" Margin="0,0,24,0" SelectionChanged="OnTieChanged" />
+            <!-- B, D♯ and G lie exactly halfway between two steps of 27-TET, so each needs telling which way to go. -->
+            <StackPanel x:Name="Ties" Orientation="Horizontal">
+                <TextBlock Text="B" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox x:Name="BTie" Width="120" Margin="0,0,16,0" SelectionChanged="OnTieChanged" />
+                <TextBlock Text="D♯" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox x:Name="DSharpTie" Width="120" Margin="0,0,16,0" SelectionChanged="OnTieChanged" />
+                <TextBlock Text="G" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox x:Name="GTie" Width="120" Margin="0,0,24,0" SelectionChanged="OnTieChanged" />
+            </StackPanel>
 
             <Button Content="Export Scala files…" Click="OnExportScala" />
         </WrapPanel>
@@ -26,7 +46,7 @@
         <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Margin="0,12,0,0" TextTrimming="CharacterEllipsis" />
 
         <ScrollViewer x:Name="KeyboardScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-            <controls:Tet27Keyboard x:Name="Keyboard" StepPressed="OnStepPressed" StepReleased="OnStepReleased" />
+            <controls:TemperedKeyboard x:Name="Keyboard" StepPressed="OnStepPressed" StepReleased="OnStepReleased" />
         </ScrollViewer>
     </DockPanel>
 </Window>

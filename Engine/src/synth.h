@@ -23,6 +23,9 @@ public:
     // Bends every note by `cents`, gliding there over a few milliseconds so the wheel does not step.
     void setBend(double cents);
 
+    // Moves every sounding note by `ratio`, as when the fundamental is tuned while notes are held.
+    void retune(double ratio);
+
     // Writes, rather than adds, `frames` frames of interleaved stereo.
     void render(float* stereo, uint32_t frames);
 

@@ -118,19 +118,19 @@ public class TuningTests
     [InlineData(0, 1, -44.444444)]
     public void The_wheel_reaches_exactly_its_range_in_steps(int wheel, int rangeSteps, double cents)
     {
-        Assert.Equal(cents, PitchBend.Cents(wheel, rangeSteps), 5);
+        Assert.Equal(cents, PitchBend.Cents(wheel, rangeSteps, Tet27.CentsPerStep), 5);
     }
 
     [Fact]
     public void The_wheel_bends_halfway_at_half_throw()
     {
-        Assert.Equal(-1.5 * Tet27.CentsPerStep, PitchBend.Cents(4096, 3), 9);
+        Assert.Equal(-1.5 * Tet27.CentsPerStep, PitchBend.Cents(4096, 3, Tet27.CentsPerStep), 9);
     }
 
     [Fact]
     public void The_scale_file_holds_27_steps_ending_on_the_octave()
     {
-        var pitches = ScalaFiles.Scale().Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('!')).ToList();
+        var pitches = ScalaFiles.Scale(Temperament.TwentySeven()).Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('!')).ToList();
         // The description, the count, then the 27 pitches themselves.
         Assert.Equal("27", pitches[1]);
         Assert.Equal(29, pitches.Count);
@@ -141,8 +141,57 @@ public class TuningTests
     [Fact]
     public void The_mapping_file_puts_A4_at_432_hertz_with_the_chosen_ties()
     {
-        var values = ScalaFiles.StandardMapping(new StandardKeyMap(B: Tie.Lower)).Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('!')).ToList();
+        var values = ScalaFiles.StandardMapping(Temperament.TwentySeven(), new StandardKeyMap(B: Tie.Lower)).Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('!')).ToList();
         Assert.Equal(["12", "0", "127", "69", "69", "432.000000", "27"], values.Take(7));
         Assert.Equal(["0", "2", "4", "7", "9", "11", "14", "16", "18", "20", "23", "25"], values.Skip(7));
+    }
+
+    [Theory]
+    [InlineData(27, 27.0, 432.0)]
+    [InlineData(27, 27.5, 440.0)]
+    [InlineData(12, 27.5, 440.0)]
+    [InlineData(12, 27.0, 432.0)]
+    public void A4_is_sixteen_times_the_fundamental_in_either_temperament(int steps, double fundamental, double a4)
+    {
+        var temperament = new Temperament(steps, fundamental);
+        Assert.Equal(a4, temperament.A4Hz, 9);
+        Assert.Equal(a4, temperament.Frequency(temperament.StepFor(69, StandardKeyMap.Default)), 9);
+    }
+
+    [Fact]
+    public void Twelve_tet_plays_every_key_on_its_own_step()
+    {
+        var twelve = Temperament.Twelve();
+        Assert.Equal(0, twelve.StepFor(21, StandardKeyMap.Default));
+        Assert.Equal(39, twelve.StepFor(60, StandardKeyMap.Default));
+        Assert.Equal(261.6256, twelve.Frequency(39), 4);
+        Assert.Equal(60, twelve.MidiNoteFor(39, StandardKeyMap.Default));
+        Assert.Null(twelve.MidiNoteFor(-22, StandardKeyMap.Default));
+    }
+
+    [Fact]
+    public void The_temperament_of_27_agrees_with_tet27()
+    {
+        var temperament = Temperament.TwentySeven();
+        for (var step = -30; step < 220; step++)
+        {
+            Assert.Equal(Tet27.Frequency(step), temperament.Frequency(step), 9);
+        }
+    }
+
+    [Fact]
+    public void A_fundamental_can_be_found_from_A4()
+    {
+        Assert.Equal(27.5, Temperament.FundamentalFor(440), 12);
+        Assert.Equal(25.9375, Temperament.FundamentalFor(415), 12);
+    }
+
+    [Fact]
+    public void The_twelve_tet_mapping_file_maps_each_key_to_itself_at_440()
+    {
+        var values = ScalaFiles.StandardMapping(Temperament.Twelve(), StandardKeyMap.Default).Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('!')).ToList();
+        Assert.Equal(["12", "0", "127", "69", "69", "440.000000", "12"], values.Take(7));
+        Assert.Equal(Enumerable.Range(0, 12).Select(key => key.ToString(System.Globalization.CultureInfo.InvariantCulture)), values.Skip(7));
+        Assert.Equal("Sophron-12tet.scl", ScalaFiles.ScaleFileName(Temperament.Twelve()));
     }
 }

@@ -80,6 +80,12 @@ void Synth::setSustain(bool down) {
 
 void Synth::setBend(double cents) { bendTarget_ = std::exp2(cents / 1200); }
 
+void Synth::retune(double ratio) {
+    for (auto& voice : voices_) {
+        voice.increment *= ratio;
+    }
+}
+
 void Synth::render(float* stereo, uint32_t frames) {
     for (uint32_t frame = 0; frame < frames; ++frame) {
         bend_ += (bendTarget_ - bend_) * bendGlide_;

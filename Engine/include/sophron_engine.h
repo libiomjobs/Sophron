@@ -39,6 +39,9 @@ SOPHRON_API void sophron_sustain(SophronEngine* engine, int32_t down);
 // Bends every note by this many cents; how far the wheel reaches is the caller's business, as the tuning is.
 SOPHRON_API void sophron_pitch_bend(SophronEngine* engine, double cents);
 
+// Moves every sounding note by this frequency ratio, so held notes follow a change of fundamental.
+SOPHRON_API void sophron_retune(SophronEngine* engine, double ratio);
+
 // Stops the engine if it is running, then frees it.
 SOPHRON_API void sophron_destroy(SophronEngine* engine);
 

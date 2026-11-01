@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -30,13 +31,23 @@ public partial class MainWindow : Window
     private const string AllInputs = "All inputs";
 
     private readonly List<MidiKeyboard> _inputs = [];
-    private StandardKeyMap _map = StandardKeyMap.Default;
 
-    /// <summary>How far the pitch wheel reaches, in steps; 3 is one white key to the next.</summary>
-    private static readonly int[] BendRanges = [1, 2, 3, 6, 9, 27];
+    // Read on the MIDI thread; each is replaced whole, never changed in place.
+    private volatile Temperament _temperament;
+    private volatile StandardKeyMap _map = StandardKeyMap.Default;
+
+    /// <summary>
+    /// How far the pitch wheel reaches, in steps, and where it starts: a whole tone in 12-TET, and in
+    /// 27-TET one white key to the next.
+    /// </summary>
+    private static readonly Dictionary<int, (int[] Ranges, int Default)> BendRanges = new()
+    {
+        [StandardKeyMap.KeysPerOctave] = ([1, 2, 3, 5, 7, 12], 2),
+        [Tet27.StepsPerOctave] = ([1, 2, 3, 6, 9, 27], 3),
+    };
 
     // The wheel and its range are read on the MIDI thread, and each is a single int, read whole.
-    private volatile int _bendSteps = 3;
+    private volatile int _bendSteps;
     private volatile int _wheel = PitchBend.Centre;
 
     private const int WmDeviceChange = 0x0219;
@@ -44,9 +55,16 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _devicesSettled;
     private bool _refreshing;
 
+    /// <summary>Set while the tuning controls are being brought into line, so they do not answer themselves.</summary>
+    private bool _tuning = true;
+
     public MainWindow()
     {
         InitializeComponent();
+
+        var steps = Preferences.StepsPerOctave is StandardKeyMap.KeysPerOctave ? StandardKeyMap.KeysPerOctave : Tet27.StepsPerOctave;
+        var fundamental = Math.Clamp(Preferences.FundamentalHz ?? Temperament.Fundamental432, Temperament.LowestFundamentalHz, Temperament.HighestFundamentalHz);
+        _temperament = new Temperament(steps, fundamental);
 
         _engine = Engine.TryStart(out var problem);
         Status.Text = problem ?? $"Engine running at {_engine!.SampleRate.ToString("0", CultureInfo.CurrentCulture)} Hz.";
@@ -54,7 +72,14 @@ public partial class MainWindow : Window
         FillTie(BTie, 2);
         FillTie(DSharpTie, 6);
         FillTie(GTie, 10);
-        FillBendRange();
+
+        Temperaments.Items.Add(new ComboBoxItem { Content = "12-TET", Tag = StandardKeyMap.KeysPerOctave });
+        Temperaments.Items.Add(new ComboBoxItem { Content = "27-TET", Tag = Tet27.StepsPerOctave });
+        Temperaments.SelectedIndex = steps == StandardKeyMap.KeysPerOctave ? 0 : 1;
+        FundamentalSlider.Minimum = Temperament.LowestFundamentalHz;
+        FundamentalSlider.Maximum = Temperament.HighestFundamentalHz;
+        _tuning = false;
+        ShowTemperament();
 
         _devicesSettled = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = DeviceSettleTime };
         _devicesSettled.Tick += (_, _) =>
@@ -64,7 +89,7 @@ public partial class MainWindow : Window
         };
 
         RefreshInputs();
-        Loaded += (_, _) => KeyboardScroller.ScrollToHorizontalOffset(Keyboard.CentreOf(108) - (KeyboardScroller.ViewportWidth / 2));
+        Loaded += (_, _) => ScrollToA4();
     }
 
     /// <summary>Windows tells every top-level window when devices come and go, without being asked.</summary>
@@ -79,6 +104,8 @@ public partial class MainWindow : Window
         _devicesSettled.Stop();
         CloseInputs();
         _engine?.Dispose();
+        Preferences.StepsPerOctave = _temperament.StepsPerOctave;
+        Preferences.FundamentalHz = _temperament.FundamentalHz;
         base.OnClosed(e);
     }
 
@@ -146,7 +173,7 @@ public partial class MainWindow : Window
 
     private void Play(int step, float velocity)
     {
-        _engine?.NoteOn(step, Tet27.Frequency(step), velocity);
+        _engine?.NoteOn(step, _temperament.Frequency(step), velocity);
         Keyboard.SetPressed(step, true);
         Status.Text = Describe(step);
     }
@@ -159,14 +186,126 @@ public partial class MainWindow : Window
 
     private string Describe(int step)
     {
-        var frequency = Tet27.Frequency(step).ToString("0.00", CultureInfo.CurrentCulture);
-        var key = _map.MidiNoteFor(step) is { } note ? $" · {StandardKeyMap.NoteName(note)} on a standard keyboard" : "";
-        return $"Step {step}: octave {Tet27.Octave(step)}, degree {Tet27.Degree(step)} ({Tet27.Shade(step).ToString().ToLowerInvariant()}) · {frequency} Hz{key}";
+        var temperament = _temperament;
+        var frequency = temperament.Frequency(step).ToString("0.00", CultureInfo.CurrentCulture);
+        if (temperament.IsStandard)
+        {
+            return $"Step {step}: {StandardKeyMap.NoteName(StandardKeyMap.A0MidiNote + step)} · {frequency} Hz";
+        }
+
+        var key = temperament.MidiNoteFor(step, _map) is { } note ? $" · {StandardKeyMap.NoteName(note)} on a standard keyboard" : "";
+        return $"Step {step}: octave {temperament.Octave(step)}, degree {temperament.Degree(step)} ({Tet27.Shade(step).ToString().ToLowerInvariant()}) · {frequency} Hz{key}";
     }
 
     private void OnStepPressed(object? sender, StepEventArgs e) => Play(e.Step, MouseVelocity);
 
     private void OnStepReleased(object? sender, StepEventArgs e) => Stop(e.Step);
+
+    /// <summary>
+    /// Steps mean something else in the other temperament, so every sounding note is let go before the
+    /// switch rather than left at a pitch nothing will ever stop.
+    /// </summary>
+    private void OnTemperamentChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_tuning || Temperaments.SelectedItem is not ComboBoxItem { Tag: int steps } || steps == _temperament.StepsPerOctave)
+        {
+            return;
+        }
+
+        _engine?.AllNotesOff();
+        Keyboard.ReleaseAll();
+        _temperament = _temperament with { StepsPerOctave = steps };
+        ShowTemperament();
+        ScrollToA4();
+    }
+
+    /// <summary>Brings the keyboard, the tuner, the bend ranges and the ties into line with the temperament.</summary>
+    private void ShowTemperament()
+    {
+        var temperament = _temperament;
+        Keyboard.Temperament = temperament;
+        Ties.Visibility = temperament.IsStandard ? Visibility.Collapsed : Visibility.Visible;
+        FillBendRange();
+        ShowFundamental();
+    }
+
+    /// <summary>
+    /// Retunes everything, notes already sounding included, so a chord can be held while A0 is moved
+    /// to hear what it does.
+    /// </summary>
+    private void SetFundamental(double hertz)
+    {
+        hertz = Math.Clamp(hertz, Temperament.LowestFundamentalHz, Temperament.HighestFundamentalHz);
+        var old = _temperament;
+        if (hertz != old.FundamentalHz)
+        {
+            _temperament = old with { FundamentalHz = hertz };
+            _engine?.Retune(hertz / old.FundamentalHz);
+            Keyboard.Temperament = _temperament;
+        }
+
+        ShowFundamental();
+    }
+
+    private void ShowFundamental()
+    {
+        var temperament = _temperament;
+        _tuning = true;
+        try
+        {
+            FundamentalSlider.Value = temperament.FundamentalHz;
+            FundamentalText.Text = temperament.FundamentalHz.ToString("0.000", CultureInfo.CurrentCulture);
+        }
+        finally
+        {
+            _tuning = false;
+        }
+
+        // How far from concert pitch, which is what most other instruments in the room will be at.
+        var fromConcert = 1200 * Math.Log2(temperament.FundamentalHz / Temperament.Fundamental440);
+        A4Text.Text = $"A4 = {temperament.A4Hz.ToString("0.00", CultureInfo.CurrentCulture)} Hz ({fromConcert.ToString("+0.0;−0.0;0", CultureInfo.CurrentCulture)}¢ from 440)";
+    }
+
+    private void OnFundamentalSlid(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_tuning)
+        {
+            SetFundamental(e.NewValue);
+        }
+    }
+
+    private void OnFundamentalKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            OnFundamentalTyped(sender, e);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>Something that is not a number puts back the fundamental already in use.</summary>
+    private void OnFundamentalTyped(object sender, RoutedEventArgs e)
+    {
+        if (double.TryParse(FundamentalText.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var hertz))
+        {
+            SetFundamental(hertz);
+        }
+        else
+        {
+            ShowFundamental();
+        }
+    }
+
+    private void OnFundamentalPreset(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string a4 })
+        {
+            SetFundamental(Temperament.FundamentalFor(double.Parse(a4, CultureInfo.InvariantCulture)));
+        }
+    }
+
+    private void ScrollToA4() =>
+        KeyboardScroller.ScrollToHorizontalOffset(Keyboard.CentreOf(4 * _temperament.StepsPerOctave) - (KeyboardScroller.ViewportWidth / 2));
 
     private void OnMidiInputChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -178,6 +317,16 @@ public partial class MainWindow : Window
 
         Preferences.MidiInput = MidiInputs.SelectedItem as string;
         OpenSelectedInputs();
+    }
+
+    /// <summary>
+    /// For a keyboard that has gone quiet. If this brings it back, the fault was in Windows' MIDI
+    /// service; if only switching the keyboard off and on does, it was in the keyboard or its USB link.
+    /// </summary>
+    private void OnReconnect(object sender, RoutedEventArgs e)
+    {
+        OpenSelectedInputs();
+        Status.Text = $"Reopened {_inputs.Count.ToString(CultureInfo.CurrentCulture)} MIDI input{(_inputs.Count == 1 ? "" : "s")}.";
     }
 
     /// <summary>Notes held on an input that closes would never hear their note-off, so everything lets go.</summary>
@@ -233,8 +382,9 @@ public partial class MainWindow : Window
     {
         input.NoteDown += (note, velocity) =>
         {
-            var step = _midiSteps[note] = _map.StepFor(note);
-            _engine?.NoteOn(step, Tet27.Frequency(step), velocity);
+            var temperament = _temperament;
+            var step = _midiSteps[note] = temperament.StepFor(note, _map);
+            _engine?.NoteOn(step, temperament.Frequency(step), velocity);
             Dispatcher.BeginInvoke(() =>
             {
                 Keyboard.SetPressed(step, true);
@@ -255,30 +405,43 @@ public partial class MainWindow : Window
         input.PitchWheel += wheel =>
         {
             _wheel = wheel;
-            var cents = PitchBend.Cents(wheel, _bendSteps);
+            var centsPerStep = _temperament.CentsPerStep;
+            var cents = PitchBend.Cents(wheel, _bendSteps, centsPerStep);
             _engine?.PitchBend(cents);
-            Dispatcher.BeginInvoke(() => Status.Text = $"Bend {cents.ToString("+0.0;−0.0;0", CultureInfo.CurrentCulture)}¢ ({(cents / Tet27.CentsPerStep).ToString("+0.00;−0.00;0", CultureInfo.CurrentCulture)} steps)");
+            Dispatcher.BeginInvoke(() => Status.Text = $"Bend {cents.ToString("+0.0;−0.0;0", CultureInfo.CurrentCulture)}¢ ({(cents / centsPerStep).ToString("+0.00;−0.00;0", CultureInfo.CurrentCulture)} steps)");
         };
     }
 
+    /// <summary>Each temperament has its own ranges, so switching starts again from its usual one.</summary>
     private void FillBendRange()
     {
-        foreach (var steps in BendRanges)
+        var temperament = _temperament;
+        var (ranges, usual) = BendRanges[temperament.StepsPerOctave];
+        _tuning = true;
+        try
         {
-            var cents = Tet27.Cents(steps).ToString("0", CultureInfo.CurrentCulture);
-            BendRange.Items.Add(new ComboBoxItem { Content = $"±{steps} ({cents}¢)", Tag = steps });
+            BendRange.Items.Clear();
+            foreach (var steps in ranges)
+            {
+                var cents = temperament.Cents(steps).ToString("0", CultureInfo.CurrentCulture);
+                BendRange.Items.Add(new ComboBoxItem { Content = $"±{steps} ({cents}¢)", Tag = steps });
+            }
+        }
+        finally
+        {
+            _tuning = false;
         }
 
-        BendRange.SelectedIndex = Array.IndexOf(BendRanges, _bendSteps);
+        BendRange.SelectedIndex = Array.IndexOf(ranges, usual);
     }
 
     /// <summary>A new range applies at once, even to a wheel already held away from the centre.</summary>
     private void OnBendRangeChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (BendRange.SelectedItem is ComboBoxItem { Tag: int steps })
+        if (!_tuning && BendRange.SelectedItem is ComboBoxItem { Tag: int steps })
         {
             _bendSteps = steps;
-            _engine?.PitchBend(PitchBend.Cents(_wheel, steps));
+            _engine?.PitchBend(PitchBend.Cents(_wheel, steps, _temperament.CentsPerStep));
         }
     }
 
@@ -318,8 +481,11 @@ public partial class MainWindow : Window
             return;
         }
 
-        File.WriteAllText(Path.Combine(dialog.FolderName, ScalaFiles.ScaleFileName), ScalaFiles.Scale());
-        File.WriteAllText(Path.Combine(dialog.FolderName, ScalaFiles.StandardMappingFileName), ScalaFiles.StandardMapping(_map));
-        Status.Text = $"Saved {ScalaFiles.ScaleFileName} and {ScalaFiles.StandardMappingFileName} in {dialog.FolderName}.";
+        var temperament = _temperament;
+        var scale = ScalaFiles.ScaleFileName(temperament);
+        var mapping = ScalaFiles.StandardMappingFileName(temperament);
+        File.WriteAllText(Path.Combine(dialog.FolderName, scale), ScalaFiles.Scale(temperament));
+        File.WriteAllText(Path.Combine(dialog.FolderName, mapping), ScalaFiles.StandardMapping(temperament, _map));
+        Status.Text = $"Saved {scale} and {mapping} in {dialog.FolderName}.";
     }
 }

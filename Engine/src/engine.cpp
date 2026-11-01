@@ -10,11 +10,11 @@
 namespace {
 
 struct Command {
-    enum class Kind : uint8_t { NoteOn, NoteOff, AllNotesOff, Sustain, PitchBend };
+    enum class Kind : uint8_t { NoteOn, NoteOff, AllNotesOff, Sustain, PitchBend, Retune };
 
     Kind kind = Kind::AllNotesOff;
     int32_t id = 0;
-    // A note's frequency in hertz, the bend in cents, or the pedal as 0 or 1.
+    // A note's frequency in hertz, the bend in cents, a retuning ratio, or the pedal as 0 or 1.
     double value = 0;
     float velocity = 0;
 };
@@ -49,6 +49,9 @@ struct SophronEngine final : sophron::AudioSource {
                 case Command::Kind::PitchBend:
                     synth->setBend(command.value);
                     break;
+                case Command::Kind::Retune:
+                    synth->retune(command.value);
+                    break;
             }
         }
         synth->render(stereo, frames);
@@ -81,6 +84,10 @@ void sophron_sustain(SophronEngine* engine, int32_t down) {
 
 void sophron_pitch_bend(SophronEngine* engine, double cents) {
     engine->commands.push({Command::Kind::PitchBend, 0, cents, 0});
+}
+
+void sophron_retune(SophronEngine* engine, double ratio) {
+    engine->commands.push({Command::Kind::Retune, 0, ratio, 0});
 }
 
 void sophron_destroy(SophronEngine* engine) {

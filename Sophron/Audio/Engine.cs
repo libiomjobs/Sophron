@@ -53,6 +53,9 @@ internal sealed partial class Engine : IDisposable
 
     public void PitchBend(double cents) => sophron_pitch_bend(_handle, cents);
 
+    /// <summary>Moves every sounding note by a frequency ratio, so held notes follow a change of fundamental.</summary>
+    public void Retune(double ratio) => sophron_retune(_handle, ratio);
+
     public void Dispose()
     {
         if (_handle != 0)
@@ -85,6 +88,9 @@ internal sealed partial class Engine : IDisposable
 
     [LibraryImport(Library)]
     private static partial void sophron_pitch_bend(nint engine, double cents);
+
+    [LibraryImport(Library)]
+    private static partial void sophron_retune(nint engine, double ratio);
 
     [LibraryImport(Library)]
     private static partial void sophron_destroy(nint engine);
