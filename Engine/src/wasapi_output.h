@@ -31,12 +31,22 @@ public:
 
     double sampleRate() const { return sampleRate_.load(); }
 
+    // The sample the listener is hearing, counted as the source renders them, and the moment it was
+    // heard, in the 100 ns units of QueryPerformanceCounter. Both are 0 until the device has played.
+    void clock(int64_t& sample, int64_t& qpc100ns) const;
+
 private:
     void run(AudioSource& source, std::promise<long>* opened);
+    void publishClock(int64_t sample, int64_t qpc100ns);
 
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<double> sampleRate_{0};
+
+    // A sequence lock: odd while the audio thread is writing the pair, so a reader can tell to try again.
+    std::atomic<uint32_t> clockSequence_{0};
+    std::atomic<int64_t> clockSample_{0};
+    std::atomic<int64_t> clockTime_{0};
 };
 
 }  // namespace sophron

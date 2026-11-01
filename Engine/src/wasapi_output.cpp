@@ -37,6 +37,27 @@ WAVEFORMATEXTENSIBLE stereoFloat(DWORD sampleRate) {
 
 WasapiOutput::~WasapiOutput() { stop(); }
 
+void WasapiOutput::clock(int64_t& sample, int64_t& qpc100ns) const {
+    uint32_t before = 0;
+    uint32_t after = 0;
+    do {
+        before = clockSequence_.load(std::memory_order_acquire);
+        sample = clockSample_.load(std::memory_order_relaxed);
+        qpc100ns = clockTime_.load(std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_acquire);
+        after = clockSequence_.load(std::memory_order_relaxed);
+    } while ((before & 1) != 0 || before != after);
+}
+
+void WasapiOutput::publishClock(int64_t sample, int64_t qpc100ns) {
+    const auto sequence = clockSequence_.load(std::memory_order_relaxed);
+    clockSequence_.store(sequence + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence(std::memory_order_release);
+    clockSample_.store(sample, std::memory_order_relaxed);
+    clockTime_.store(qpc100ns, std::memory_order_relaxed);
+    clockSequence_.store(sequence + 2, std::memory_order_release);
+}
+
 long WasapiOutput::start(AudioSource& source) {
     if (running_.load()) {
         return S_OK;
@@ -76,6 +97,8 @@ void WasapiOutput::run(AudioSource& source, std::promise<long>* opened) {
         ComPtr<IMMDevice> device;
         ComPtr<IAudioClient> client;
         ComPtr<IAudioRenderClient> renderer;
+        ComPtr<IAudioClock> audioClock;
+        UINT64 clockFrequency = 0;
         UINT32 bufferFrames = 0;
 
         auto open = [&]() -> HRESULT {
@@ -106,6 +129,10 @@ void WasapiOutput::run(AudioSource& source, std::promise<long>* opened) {
             r = client->GetBufferSize(&bufferFrames);
             if (FAILED(r)) return r;
             r = client->GetService(IID_PPV_ARGS(&renderer));
+            if (FAILED(r)) return r;
+            r = client->GetService(IID_PPV_ARGS(&audioClock));
+            if (FAILED(r)) return r;
+            r = audioClock->GetFrequency(&clockFrequency);
             if (FAILED(r)) return r;
 
             sampleRate_.store(rate);
@@ -138,6 +165,16 @@ void WasapiOutput::run(AudioSource& source, std::promise<long>* opened) {
                 }
                 source.render(reinterpret_cast<float*>(data), frames);
                 renderer->ReleaseBuffer(frames, 0);
+
+                // The device counts what it has played in its own units; in samples, it is the same count
+                // the source has been rendering, since both begin when the stream does.
+                UINT64 played = 0;
+                UINT64 playedAt = 0;
+                if (SUCCEEDED(audioClock->GetPosition(&played, &playedAt)) && clockFrequency != 0) {
+                    const auto rate = sampleRate_.load(std::memory_order_relaxed);
+                    publishClock(static_cast<int64_t>(static_cast<double>(played) * rate / static_cast<double>(clockFrequency)),
+                                 static_cast<int64_t>(playedAt));
+                }
             }
 
             client->Stop();

@@ -26,6 +26,10 @@ public:
     // Moves every sounding note by `ratio`, as when the fundamental is tuned while notes are held.
     void retune(double ratio);
 
+    // A metronome click, brighter on the first beat of a bar. It sits beside the notes, not among
+    // them: it takes no voice and is untouched by the bend.
+    void click(bool accent);
+
     // Writes, rather than adds, `frames` frames of interleaved stereo.
     void render(float* stereo, uint32_t frames);
 
@@ -56,6 +60,10 @@ private:
     double bend_ = 1;
     double bendTarget_ = 1;
     bool sustain_ = false;
+    double clickPhase_ = 0;
+    double clickIncrement_ = 0;
+    float clickLevel_ = 0;
+    float clickDecay_;
     uint64_t notesStarted_ = 0;
 };
 

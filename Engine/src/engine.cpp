@@ -1,60 +1,32 @@
 #include "sophron_engine.h"
 
-#include <memory>
 #include <optional>
 
 #include "command_queue.h"
-#include "synth.h"
+#include "player.h"
 #include "wasapi_output.h"
 
-namespace {
+using sophron::Event;
 
-struct Command {
-    enum class Kind : uint8_t { NoteOn, NoteOff, AllNotesOff, Sustain, PitchBend, Retune };
-
-    Kind kind = Kind::AllNotesOff;
-    int32_t id = 0;
-    // A note's frequency in hertz, the bend in cents, a retuning ratio, or the pedal as 0 or 1.
-    double value = 0;
-    float velocity = 0;
-};
-
-}  // namespace
-
-// The engine as the C# side sees it: commands go into the queue from any thread, and the audio
-// thread plays them into the synth at the start of each buffer.
+// The engine as the C# side sees it: events go into the queue from any thread, and the audio thread
+// hands them to the player at the start of each buffer, which plays each on its own sample.
 struct SophronEngine final : sophron::AudioSource {
-    sophron::CommandQueue<Command, 1024> commands;
-    std::optional<sophron::Synth> synth;
+    sophron::CommandQueue<Event, 4096> events;
+    std::optional<sophron::Player> player;
     sophron::WasapiOutput output;
 
-    void prepare(double sampleRate) override { synth.emplace(sampleRate); }
+    void prepare(double sampleRate) override { player.emplace(sampleRate); }
 
     void render(float* stereo, uint32_t frames) override {
-        Command command;
-        while (commands.pop(command)) {
-            switch (command.kind) {
-                case Command::Kind::NoteOn:
-                    synth->noteOn(command.id, command.value, command.velocity);
-                    break;
-                case Command::Kind::NoteOff:
-                    synth->noteOff(command.id);
-                    break;
-                case Command::Kind::AllNotesOff:
-                    synth->allNotesOff();
-                    break;
-                case Command::Kind::Sustain:
-                    synth->setSustain(command.value != 0);
-                    break;
-                case Command::Kind::PitchBend:
-                    synth->setBend(command.value);
-                    break;
-                case Command::Kind::Retune:
-                    synth->retune(command.value);
-                    break;
-            }
+        Event event;
+        while (events.pop(event)) {
+            player->submit(event);
         }
-        synth->render(stereo, frames);
+        player->render(stereo, frames);
+    }
+
+    void push(Event::Kind kind, int32_t id, double value, float velocity, int64_t when) {
+        events.push({kind, id, value, velocity, when});
     }
 };
 
@@ -68,26 +40,54 @@ void sophron_stop(SophronEngine* engine) { engine->output.stop(); }
 
 double sophron_sample_rate(const SophronEngine* engine) { return engine->output.sampleRate(); }
 
+void sophron_clock(const SophronEngine* engine, int64_t* sample, int64_t* qpc_100ns) {
+    engine->output.clock(*sample, *qpc_100ns);
+}
+
 void sophron_note_on(SophronEngine* engine, int32_t note_id, double frequency_hz, float velocity) {
-    engine->commands.push({Command::Kind::NoteOn, note_id, frequency_hz, velocity});
+    engine->push(Event::Kind::NoteOn, note_id, frequency_hz, velocity, Event::Now);
 }
 
 void sophron_note_off(SophronEngine* engine, int32_t note_id) {
-    engine->commands.push({Command::Kind::NoteOff, note_id, 0, 0});
+    engine->push(Event::Kind::NoteOff, note_id, 0, 0, Event::Now);
 }
 
-void sophron_all_notes_off(SophronEngine* engine) { engine->commands.push({}); }
+void sophron_all_notes_off(SophronEngine* engine) { engine->push(Event::Kind::AllNotesOff, 0, 0, 0, Event::Now); }
 
 void sophron_sustain(SophronEngine* engine, int32_t down) {
-    engine->commands.push({Command::Kind::Sustain, 0, down != 0 ? 1.0 : 0.0, 0});
+    engine->push(Event::Kind::Sustain, 0, down != 0 ? 1.0 : 0.0, 0, Event::Now);
 }
 
 void sophron_pitch_bend(SophronEngine* engine, double cents) {
-    engine->commands.push({Command::Kind::PitchBend, 0, cents, 0});
+    engine->push(Event::Kind::PitchBend, 0, cents, 0, Event::Now);
 }
 
 void sophron_retune(SophronEngine* engine, double ratio) {
-    engine->commands.push({Command::Kind::Retune, 0, ratio, 0});
+    engine->push(Event::Kind::Retune, 0, ratio, 0, Event::Now);
+}
+
+void sophron_note_on_at(SophronEngine* engine, int64_t sample, int32_t note_id, double frequency_hz, float velocity) {
+    engine->push(Event::Kind::NoteOn, note_id, frequency_hz, velocity, sample);
+}
+
+void sophron_note_off_at(SophronEngine* engine, int64_t sample, int32_t note_id) {
+    engine->push(Event::Kind::NoteOff, note_id, 0, 0, sample);
+}
+
+void sophron_sustain_at(SophronEngine* engine, int64_t sample, int32_t down) {
+    engine->push(Event::Kind::Sustain, 0, down != 0 ? 1.0 : 0.0, 0, sample);
+}
+
+void sophron_pitch_bend_at(SophronEngine* engine, int64_t sample, double cents) {
+    engine->push(Event::Kind::PitchBend, 0, cents, 0, sample);
+}
+
+void sophron_click_at(SophronEngine* engine, int64_t sample, int32_t accent) {
+    engine->push(Event::Kind::Click, 0, accent != 0 ? 1.0 : 0.0, 0, sample);
+}
+
+void sophron_cancel_scheduled(SophronEngine* engine) {
+    engine->push(Event::Kind::CancelScheduled, 0, 0, 0, Event::Now);
 }
 
 void sophron_destroy(SophronEngine* engine) {

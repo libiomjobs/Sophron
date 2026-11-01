@@ -13,6 +13,10 @@ constexpr double ReleaseSeconds = 0.25;
 constexpr double BendGlideSeconds = 0.005;
 constexpr float Silent = 1e-4f;
 constexpr float Gain = 0.25f;
+constexpr double ClickSeconds = 0.012;
+constexpr double ClickHz = 1000;
+constexpr double AccentHz = 1500;
+constexpr float ClickGain = 0.3f;
 
 // Smooths the jump in a sawtooth across one sample, which keeps high notes from aliasing.
 double polyBlep(double phase, double increment) {
@@ -33,7 +37,8 @@ Synth::Synth(double sampleRate)
     : sampleRate_(sampleRate),
       attackStep_(static_cast<float>(1 / (AttackSeconds * sampleRate))),
       releaseFactor_(static_cast<float>(std::exp(-1 / (ReleaseSeconds * sampleRate)))),
-      bendGlide_(1 - std::exp(-1 / (BendGlideSeconds * sampleRate))) {}
+      bendGlide_(1 - std::exp(-1 / (BendGlideSeconds * sampleRate))),
+      clickDecay_(static_cast<float>(std::exp(-1 / (ClickSeconds * sampleRate)))) {}
 
 void Synth::noteOn(int32_t id, double frequency, float velocity) {
     auto& voice = voiceFor(id);
@@ -86,6 +91,12 @@ void Synth::retune(double ratio) {
     }
 }
 
+void Synth::click(bool accent) {
+    clickPhase_ = 0;
+    clickIncrement_ = (accent ? AccentHz : ClickHz) / sampleRate_;
+    clickLevel_ = 1;
+}
+
 void Synth::render(float* stereo, uint32_t frames) {
     for (uint32_t frame = 0; frame < frames; ++frame) {
         bend_ += (bendTarget_ - bend_) * bendGlide_;
@@ -118,7 +129,14 @@ void Synth::render(float* stereo, uint32_t frames) {
         }
 
         // Many notes at once are rounded off rather than clipped.
-        const auto out = std::tanh(sum * Gain);
+        auto out = std::tanh(sum * Gain);
+
+        // The click is added after the notes are rounded off, so a loud chord does not swallow it.
+        if (clickLevel_ > Silent) {
+            out += ClickGain * clickLevel_ * static_cast<float>(std::sin(2 * std::numbers::pi * clickPhase_));
+            clickPhase_ += clickIncrement_;
+            clickLevel_ *= clickDecay_;
+        }
         stereo[2 * frame] = out;
         stereo[2 * frame + 1] = out;
     }

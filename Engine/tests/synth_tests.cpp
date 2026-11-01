@@ -1,9 +1,11 @@
 // The synth's tests: it plays the frequency it is given, lets go when told, and survives more notes
 // than it has voices. A plain executable, so CTest needs nothing more than its exit code.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
 
+#include "player.h"
 #include "synth.h"
 
 namespace {
@@ -115,6 +117,49 @@ int main() {
         synth.retune(440.0 / 432.0);
         const auto crossings = risingCrossings(render(synth, 1.0));
         check(std::abs(crossings - 440) <= 1, "retuning moves a held note from 432 to 440 Hz");
+    }
+    {
+        sophron::Player player(Rate);
+        player.submit({sophron::Event::Kind::NoteOn, 1, 432.0, 1.0f, 1000});
+        std::vector<float> stereo(2 * 512);
+        player.render(stereo.data(), 512);
+        bool silent = true;
+        for (auto sample : stereo) silent = silent && sample == 0;
+        check(silent, "a note scheduled for sample 1000 is not heard in the first buffer");
+
+        player.render(stereo.data(), 512);
+        size_t first = 0;
+        while (first < 512 && stereo[2 * first] == 0) ++first;
+        std::printf("     first sound at sample %zu\n", 512 + first);
+        check(512 + first == 1000 || 512 + first == 1001, "and starts on its very sample, in the middle of the next");
+    }
+    {
+        sophron::Player player(Rate);
+        player.submit({sophron::Event::Kind::NoteOn, 1, 300.0, 1.0f, sophron::Event::Now});
+        player.submit({sophron::Event::Kind::NoteOff, 1, 0, 0, 2000});
+        player.submit({sophron::Event::Kind::NoteOn, 1, 300.0, 1.0f, 2000});
+        std::vector<float> stereo(2 * 48'000);
+        player.render(stereo.data(), 48'000);
+        check(player.synth().activeVoices() == 1, "an off and an on at one sample play in the order sent");
+    }
+    {
+        sophron::Player player(Rate);
+        player.submit({sophron::Event::Kind::NoteOn, 1, 300.0, 1.0f, 100});
+        player.submit({sophron::Event::Kind::CancelScheduled, 0, 0, 0, sophron::Event::Now});
+        std::vector<float> stereo(2 * 512);
+        player.render(stereo.data(), 512);
+        check(player.synth().activeVoices() == 0, "cancelling forgets what was waiting");
+        check(player.position() == 512, "the player counts the samples it has made");
+    }
+    {
+        sophron::Player player(Rate);
+        player.submit({sophron::Event::Kind::Click, 0, 1, 0, 256});
+        std::vector<float> stereo(2 * 4800);
+        player.render(stereo.data(), 4800);
+        float loudest = 0;
+        for (auto sample : stereo) loudest = std::max(loudest, std::abs(sample));
+        check(stereo[2 * 255] == 0 && loudest > 0.1f, "a click sounds when it is due");
+        check(std::abs(stereo[2 * 4799]) < 1e-3f, "and is gone within a tenth of a second");
     }
 
     std::printf("%d failed\n", failures);

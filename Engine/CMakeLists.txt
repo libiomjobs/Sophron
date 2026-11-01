@@ -10,8 +10,8 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_compile_options(/W4 /WX /permissive- /utf-8)
 add_compile_definitions(UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 
-# The synth knows nothing of devices, so the tests can run it without one.
-add_library(sophron_synth STATIC src/synth.cpp)
+# The synth and its player know nothing of devices, so the tests can run it without one.
+add_library(sophron_synth STATIC src/synth.cpp src/player.cpp)
 target_include_directories(sophron_synth PUBLIC src)
 
 add_library(sophron_engine SHARED src/engine.cpp src/wasapi_output.cpp)

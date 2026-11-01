@@ -170,13 +170,38 @@ public sealed class TemperedKeyboard : FrameworkElement
         MoveMouseTo(null);
     }
 
+    /// <summary>The highest step a keyboard in this temperament shows, the lowest being A0.</summary>
+    public static int LastStepOf(Temperament temperament) => temperament.IsStandard ? LastStep12 : LastStep27;
+
+    /// <summary>Whether a step is a full-length key: a white of 9-TET in 27-TET, a piano's white in 12-TET.</summary>
+    public static bool IsWhiteStep(Temperament temperament, int step) => temperament.IsStandard
+        ? PianoWhites.Contains(temperament.Degree(step))
+        : Tet27.Shade(step) == KeyShade.White;
+
+    /// <summary>The colour of a step's key, unpressed.</summary>
+    public static Brush KeyBrush(Temperament temperament, int step) =>
+        IsWhiteStep(temperament, step) ? WhiteBrush
+        : temperament.IsStandard ? BlackBrush
+        : Tet27.Shade(step) == KeyShade.Light ? LightBrush : DarkBrush;
+
+    /// <summary>The name a step goes by on the keyboard, if it is one that is labelled: each A in 27-TET, each C in 12-TET.</summary>
+    public static string? LabelOf(Temperament temperament, int step)
+    {
+        if (temperament.IsStandard)
+        {
+            return temperament.Degree(step) == PianoC ? StandardKeyMap.NoteName(StandardKeyMap.A0MidiNote + step) : null;
+        }
+
+        return Tet27.Shade(step) == KeyShade.White && Tet27.Degree(step) == 0
+            ? "A" + Tet27.Octave(step).ToString(CultureInfo.CurrentCulture)
+            : null;
+    }
+
     private bool IsPiano => Temperament.IsStandard;
 
-    private int LastStep => IsPiano ? LastStep12 : LastStep27;
+    private int LastStep => LastStepOf(Temperament);
 
-    private bool IsWhite(int step) => IsPiano
-        ? PianoWhites.Contains(Temperament.Degree(step))
-        : Tet27.Shade(step) == KeyShade.White;
+    private bool IsWhite(int step) => IsWhiteStep(Temperament, step);
 
     /// <summary>How many white keys lie to the left of a white step.</summary>
     private int WhiteIndex(int whiteStep) => IsPiano
@@ -216,10 +241,7 @@ public sealed class TemperedKeyboard : FrameworkElement
     {
         var (left, width, length) = KeyBounds(step);
         var white = IsWhite(step);
-        var fill = _pressed.Contains(step) ? PressedBrush
-            : white ? WhiteBrush
-            : IsPiano ? BlackBrush
-            : Tet27.Shade(step) == KeyShade.Light ? LightBrush : DarkBrush;
+        var fill = _pressed.Contains(step) ? PressedBrush : KeyBrush(Temperament, step);
 
         // A light and a dark key share the gap between two whites; a hairline keeps them apart.
         var inset = white || IsPiano ? 0 : 0.5;
@@ -232,25 +254,12 @@ public sealed class TemperedKeyboard : FrameworkElement
             context.DrawEllipse(MarkBrush, null, new Point(left + (width / 2), length - (radius * 2.5)), radius, radius);
         }
 
-        var label = Label(step);
+        var label = LabelOf(Temperament, step);
         if (label is not null)
         {
             var text = new FormattedText(label, CultureInfo.CurrentCulture, FlowDirection.LeftToRight, LabelFace, 10, LabelBrush, dpi);
             context.DrawText(text, new Point(left + ((width - text.Width) / 2), height - text.Height - 18));
         }
-    }
-
-    /// <summary>27-TET counts its octaves from A, as its steps do; a piano is labelled at each C, as pianists expect.</summary>
-    private string? Label(int step)
-    {
-        if (IsPiano)
-        {
-            return Temperament.Degree(step) == PianoC ? StandardKeyMap.NoteName(StandardKeyMap.A0MidiNote + step) : null;
-        }
-
-        return Tet27.Shade(step) == KeyShade.White && Tet27.Degree(step) == 0
-            ? "A" + Tet27.Octave(step).ToString(CultureInfo.CurrentCulture)
-            : null;
     }
 
     private int? StepAt(Point point)
